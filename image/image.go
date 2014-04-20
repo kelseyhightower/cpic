@@ -3,6 +3,8 @@ package image
 import (
 	"compress/gzip"
 	"io"
+	"os"
+	"time"
 
 	"github.com/surma/gocpio"
 )
@@ -25,8 +27,8 @@ func NewReader(r io.Reader) (*Reader, error) {
 	return &Reader{z, cpio.NewReader(z)}, nil
 }
 
-func (i *Reader) Close() error {
-	if err := i.z.Close(); err != nil {
+func (r *Reader) Close() error {
+	if err := r.z.Close(); err != nil {
 		return err
 	}
 	return nil
@@ -37,22 +39,22 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	return &Writer{z, cpio.NewWriter(z)}, nil
 }
 
-func (i *Writer) Close() error {
-	if err := i.c.Close(); err != nil {
+func (w *Writer) Close() error {
+	if err := w.c.Close(); err != nil {
 		return err
 	}
-	if err := i.z.Close(); err != nil {
+	if err := w.z.Close(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (i *Writer) Write(p []byte) (n int, err error) {
-	return i.c.Write(p)
+func (w *Writer) Write(p []byte) (n int, err error) {
+	return w.c.Write(p)
 }
 
-func (i *Writer) WriteHeader(hdr *cpio.Header) error {
-	return i.c.WriteHeader(hdr)
+func (w *Writer) WriteHeader(hdr *cpio.Header) error {
+	return w.c.WriteHeader(hdr)
 }
 
 func Copy(dst *Writer, src *Reader) error {
@@ -79,6 +81,45 @@ func Copy(dst *Writer, src *Reader) error {
 		if _, err = io.Copy(dst.c, src.c); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (w *Writer) WriteFile(path, name string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	h := cpio.Header{
+		Name:  name,
+		Mode:  0644,
+		Mtime: time.Now().Unix(),
+		Size:  fi.Size(),
+		Type:  cpio.TYPE_REG,
+	}
+	if err := w.WriteHeader(&h); err != nil {
+		return err
+	}
+	if _, err = io.Copy(w, f); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *Writer) WriteDir(name string) error {
+	h := cpio.Header{
+		Name:  name,
+		Mode:  0755,
+		Mtime: time.Now().Unix(),
+		Type:  cpio.TYPE_DIR,
+	}
+	if err := w.WriteHeader(&h); err != nil {
+		return err
 	}
 	return nil
 }

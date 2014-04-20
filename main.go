@@ -7,15 +7,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"path"
-	"time"
 
 	"github.com/kelseyhightower/cpic/image"
-	"github.com/surma/gocpio"
 )
 
 var (
@@ -52,38 +49,13 @@ func init() {
 	flag.StringVar(&out, "o", "", "write output to file")
 }
 
-func copyConfig(iw *image.Writer, path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+func copyConfig(w *image.Writer, path string) error {
 	for _, d := range []string{"usr", "usr/share", "usr/share/oem"} {
-		h := cpio.Header{
-			Name:  d,
-			Mode:  0755,
-			Mtime: time.Now().Unix(),
-			Type:  cpio.TYPE_DIR,
-		}
-		if err := iw.WriteHeader(&h); err != nil {
+		if err := w.WriteDir(d); err != nil {
 			return err
 		}
 	}
-	fi, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	h := cpio.Header{
-		Name:  "usr/share/oem/cloud-config.yml",
-		Mode:  0644,
-		Mtime: time.Now().Unix(),
-		Size:  fi.Size(),
-		Type:  cpio.TYPE_REG,
-	}
-	if err := iw.WriteHeader(&h); err != nil {
-		return err
-	}
-	if _, err = io.Copy(iw, f); err != nil {
+	if err := w.WriteFile(path, "usr/share/oem/cloud-config.yml"); err != nil {
 		return err
 	}
 	return nil
@@ -99,7 +71,7 @@ func customizeImage(in, out, config string) error {
 		return err
 	}
 	defer i.Close()
-	ir, err := image.NewReader(i)
+	r, err := image.NewReader(i)
 	if err != nil {
 		return err
 	}
@@ -107,20 +79,20 @@ func customizeImage(in, out, config string) error {
 	if err != nil {
 		return err
 	}
-	iw, err := image.NewWriter(temp)
+	w, err := image.NewWriter(temp)
 	if err != nil {
 		return err
 	}
-	if err := image.Copy(iw, ir); err != nil {
+	if err := image.Copy(w, r); err != nil {
 		return err
 	}
-	if err := copyConfig(iw, config); err != nil {
+	if err := copyConfig(w, config); err != nil {
 		return err
 	}
-	if err := ir.Close(); err != nil {
+	if err := r.Close(); err != nil {
 		return err
 	}
-	if err := iw.Close(); err != nil {
+	if err := w.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(temp.Name(), out); err != nil {
