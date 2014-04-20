@@ -5,7 +5,6 @@
 package main
 
 import (
-	"compress/gzip"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/surma/gocpio"
+	"github.com/kelseyhightower/cpic/image"
 )
 
 var (
@@ -46,81 +46,13 @@ func usage() {
 	fmt.Fprintf(os.Stderr, help)
 }
 
-type ImageReader struct {
-	z *gzip.Reader
-	c *cpio.Reader
-}
-
-func NewImageReader(r io.Reader) (*ImageReader, error) {
-	z, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, err
-	}
-	return &ImageReader{z, cpio.NewReader(z)}, nil
-}
-
-func (i *ImageReader) Close() error {
-	if err := i.z.Close(); err != nil {
-		return err
-	}
-	return nil
-}
-
-type ImageWriter struct {
-	z *gzip.Writer
-	c *cpio.Writer
-}
-
-func NewImageWriter(w io.Writer) (*ImageWriter, error) {
-	z := gzip.NewWriter(w)
-	return &ImageWriter{z, cpio.NewWriter(z)}, nil
-}
-
-func (i *ImageWriter) Close() error {
-	if err := i.c.Close(); err != nil {
-		return err
-	}
-	if err := i.z.Close(); err != nil {
-		return err
-	}
-	return nil
-}
-
 func init() {
 	flag.Usage = usage
 	flag.StringVar(&config, "c", DefaultConfigPath, "coreos cloud config")
 	flag.StringVar(&out, "o", "", "write output to file")
 }
 
-func copyImage(dst *ImageWriter, src *ImageReader) error {
-	for {
-		h, err := src.c.Next()
-		if err != nil {
-			return err
-		}
-		if h.IsTrailer() {
-			break
-		}
-		if h.Type == cpio.TYPE_DIR {
-			if h.Name == "." {
-				continue
-			}
-			if err := dst.c.WriteHeader(h); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := dst.c.WriteHeader(h); err != nil {
-			return err
-		}
-		if _, err = io.Copy(dst.c, src.c); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func copyConfig(iw *ImageWriter, path string) error {
+func copyConfig(iw *image.Writer, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -133,7 +65,7 @@ func copyConfig(iw *ImageWriter, path string) error {
 			Mtime: time.Now().Unix(),
 			Type:  cpio.TYPE_DIR,
 		}
-		if err := iw.c.WriteHeader(&h); err != nil {
+		if err := iw.WriteHeader(&h); err != nil {
 			return err
 		}
 	}
@@ -148,27 +80,26 @@ func copyConfig(iw *ImageWriter, path string) error {
 		Size:  fi.Size(),
 		Type:  cpio.TYPE_REG,
 	}
-	if err := iw.c.WriteHeader(&h); err != nil {
+	if err := iw.WriteHeader(&h); err != nil {
 		return err
 	}
-	if _, err = io.Copy(iw.c, f); err != nil {
+	if _, err = io.Copy(iw, f); err != nil {
 		return err
 	}
 	return nil
 }
-
 
 // Customize the CoreOS PXE image by creating the necessary OEM directories
 // and copying the cloud-config file in place.
 // See the "Adding a Custom OEM" section in the Booting CoreOS via PXE 
 // documentation - http://goo.gl/QrWvqN. 
 func customizeImage(in, out, config string) error {
-	image, err := os.Open(in)
+	i, err := os.Open(in)
 	if err != nil {
 		return err
 	}
-	defer image.Close()
-	ir, err := NewImageReader(image)
+	defer i.Close()
+	ir, err := image.NewReader(i)
 	if err != nil {
 		return err
 	}
@@ -176,11 +107,11 @@ func customizeImage(in, out, config string) error {
 	if err != nil {
 		return err
 	}
-	iw, err := NewImageWriter(temp)
+	iw, err := image.NewWriter(temp)
 	if err != nil {
 		return err
 	}
-	if err := copyImage(iw, ir); err != nil {
+	if err := image.Copy(iw, ir); err != nil {
 		return err
 	}
 	if err := copyConfig(iw, config); err != nil {
