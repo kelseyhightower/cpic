@@ -20,6 +20,8 @@ var (
 	output string
 )
 
+const version = "0.0.1"
+
 // DefaultConfigPath is the default CoreOS cloud config file path to copy
 // into OEM PXE image.
 var DefaultConfigPath = "cloud-config.yml"
@@ -95,8 +97,16 @@ func customizeImage(in, config string) (temp *os.File, err error) {
 	return
 }
 
+func Version() string {
+	return fmt.Sprintf("cpic version %s", version)
+}
+
 func main() {
 	flag.Parse()
+	if os.Args[1] == "version" {
+		fmt.Println(Version())
+		os.Exit(0)
+	}
 	if flag.Arg(0) == "" {
 		log.Fatal("cpic: no pxe image provided")
 	}
