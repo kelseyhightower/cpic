@@ -26,20 +26,6 @@ const version = "0.0.1"
 // into OEM PXE image.
 var DefaultConfigPath = "cloud-config.yml"
 
-var help = `
-cpic creates an OEM CoreOS PXE image by copying the source PXE
-image along with the CoreOS cloud-config.yml into a new PXE image.
-
-The -o flag specifies the output file name. If not specified, the
-output file name depends on the arguments and derives from the name
-of the source PXE image. If the source PXE image is in the current
-working directory it will be overwritten.
-
-The -c flag specifies the cloud-config file name. If not specified,
-the cloud-config file name will be set to "cloud-config.yml". The
-cloud-config file must exist.
-`
-
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: cpic [-c cloud-config] [-o output] coreos_production_pxe_image.cpio.gz\n")
 	flag.PrintDefaults()
@@ -97,21 +83,16 @@ func customizeImage(in, config string) (temp *os.File, err error) {
 	return
 }
 
-func Version() string {
-	return fmt.Sprintf("cpic version %s", version)
+func versionExit() {
+	fmt.Printf("cpic version %s\n", version)
+	os.Exit(0)
 }
 
 func main() {
 	flag.Parse()
 	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version":
-			fmt.Println(Version())
-			os.Exit(0)
-		case "help":
-			usage()
-			fmt.Fprintf(os.Stderr, help)
-			os.Exit(0)
+		if os.Args[1] == "version" {
+			versionExit()
 		}
 	}
 	if flag.Arg(0) == "" {
