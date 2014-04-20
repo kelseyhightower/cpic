@@ -42,7 +42,7 @@ cloud-config file must exist.
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: cpic [-c cloud-config] [-o output] coreos_production_pxe_image.cpio.gz\n")
-	fmt.Fprintf(os.Stderr, help)
+	flag.PrintDefaults()
 }
 
 func init() {
@@ -103,9 +103,16 @@ func Version() string {
 
 func main() {
 	flag.Parse()
-	if os.Args[1] == "version" {
-		fmt.Println(Version())
-		os.Exit(0)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version":
+			fmt.Println(Version())
+			os.Exit(0)
+		case "help":
+			usage()
+			fmt.Fprintf(os.Stderr, help)
+			os.Exit(0)
+		}
 	}
 	if flag.Arg(0) == "" {
 		log.Fatal("cpic: no pxe image provided")
