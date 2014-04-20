@@ -17,7 +17,7 @@ import (
 
 var (
 	config string
-	out    string
+	output string
 )
 
 // DefaultConfigPath is the default CoreOS cloud config file path to copy
@@ -46,7 +46,7 @@ func usage() {
 func init() {
 	flag.Usage = usage
 	flag.StringVar(&config, "c", DefaultConfigPath, "coreos cloud config")
-	flag.StringVar(&out, "o", "", "write output to file")
+	flag.StringVar(&output, "o", "", "write output to file")
 }
 
 func copyConfig(w *image.Writer, path string) error {
@@ -65,40 +65,34 @@ func copyConfig(w *image.Writer, path string) error {
 // and copying the cloud-config file in place.
 // See the "Adding a Custom OEM" section in the Booting CoreOS via PXE
 // documentation - http://goo.gl/QrWvqN.
-func customizeImage(in, out, config string) error {
+func customizeImage(in, config string) (temp *os.File, err error) {
 	i, err := os.Open(in)
 	if err != nil {
-		return err
+		return
 	}
 	defer i.Close()
 	r, err := image.NewReader(i)
 	if err != nil {
-		return err
+		return
 	}
-	temp, err := ioutil.TempFile("", "")
+	defer r.Close()
+	temp, err = ioutil.TempFile("", "")
 	if err != nil {
-		return err
+		return
 	}
+	defer temp.Close()
 	w, err := image.NewWriter(temp)
 	if err != nil {
-		return err
+		return
 	}
-	if err := image.Copy(w, r); err != nil {
-		return err
+	if err = copyConfig(w, config); err != nil {
+		return
 	}
-	if err := copyConfig(w, config); err != nil {
-		return err
+	defer w.Close()
+	if err = image.Copy(w, r); err != nil {
+		return
 	}
-	if err := r.Close(); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temp.Name(), out); err != nil {
-		return err
-	}
-	return nil
+	return
 }
 
 func main() {
@@ -108,10 +102,14 @@ func main() {
 	}
 	in := flag.Arg(0)
 	out := path.Base(in)
-	if out != "" {
-		out = out
+	if output != "" {
+		out = output
 	}
-	if err := customizeImage(in, out, config); err != nil {
+	temp, err := customizeImage(in, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.Rename(temp.Name(), out); err != nil {
 		log.Fatal(err)
 	}
 }
