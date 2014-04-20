@@ -1,3 +1,7 @@
+// Copyright 2014 Kelsey Hightower. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -130,10 +134,8 @@ func createOEM(dst *cpio.Writer, configPath string) error {
 	return nil
 }
 
-func cpioGzReader()
-
 func main() {
-	// Parse the commandline flags. 
+	// Parse the commandline flags.
 	flag.Parse()
 	if flag.Arg(0) == "" {
 		log.Fatal("cpic: no pxe image provided")
@@ -144,27 +146,32 @@ func main() {
 		pxeOut = out
 	}
 
-	// Setup the gzip reader.
+	// Setup the cpio gzip reader.
 	in, err := os.Open(pxeIn)
 	handleError(err)
 	gzr, err := gzip.NewReader(in)
 	handleError(err)
 	src := cpio.NewReader(gzr)
 
-	// Setup the gzip writer.
+	// Setup the cpio gzip writer.
 	temp, err := ioutil.TempFile("", "")
 	handleError(err)
 	gzw := gzip.NewWriter(temp)
 	handleError(err)
 	dst := cpio.NewWriter(gzw)
 
+	// Copy the source PXE image.
 	err = copyArchive(dst, src)
 	handleError(err)
 
+	// Customize the PXE image by adding the CoreOS cloud config.
 	err = createOEM(dst, configPath)
 	handleError(err)
 
-	// Cleanup.
+	// Close the various cpio and gzip readers and writers.
+	// Order is important. The gzip writer is not guaranteed to
+	// flush its buffer and the cpio writer does not write the
+	// cpio trailer until closed.
 	err = gzr.Close()
 	handleError(err)
 	err = in.Close()
@@ -176,6 +183,8 @@ func main() {
 	err = temp.Close()
 	handleError(err)
 
+	// Move the temp file representing the customized PXE image to
+	// the final output location.
 	err = os.Rename(temp.Name(), pxeOut)
 	handleError(err)
 }
