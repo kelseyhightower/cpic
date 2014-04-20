@@ -1,6 +1,6 @@
 // Copyright 2014 Kelsey Hightower. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 package main
 
@@ -19,19 +19,13 @@ import (
 )
 
 var (
-	configPath string
-	out        string
+	config string
+	out    string
 )
 
-// DefaultConfigPath is the default CoreOS cloud config file path
-// to copy into OEM PXE image.
+// DefaultConfigPath is the default CoreOS cloud config file path to copy
+// into OEM PXE image.
 var DefaultConfigPath = "cloud-config.yml"
-
-func init() {
-	flag.Usage = usage
-	flag.StringVar(&configPath, "c", DefaultConfigPath, "coreos cloud config path")
-	flag.StringVar(&out, "o", "", "Write output to file")
-}
 
 var help = `
 cpic creates an OEM CoreOS PXE image by copying the source PXE
@@ -52,66 +46,97 @@ func usage() {
 	fmt.Fprintf(os.Stderr, help)
 }
 
-func handleError(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
+type ImageReader struct {
+	z *gzip.Reader
+	c *cpio.Reader
 }
 
-func copyArchive(dst *cpio.Writer, src *cpio.Reader) error {
+func NewImageReader(r io.Reader) (*ImageReader, error) {
+	z, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	return &ImageReader{z, cpio.NewReader(z)}, nil
+}
+
+func (i *ImageReader) Close() error {
+	if err := i.z.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type ImageWriter struct {
+	z *gzip.Writer
+	c *cpio.Writer
+}
+
+func NewImageWriter(w io.Writer) (*ImageWriter, error) {
+	z := gzip.NewWriter(w)
+	return &ImageWriter{z, cpio.NewWriter(z)}, nil
+}
+
+func (i *ImageWriter) Close() error {
+	if err := i.c.Close(); err != nil {
+		return err
+	}
+	if err := i.z.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func init() {
+	flag.Usage = usage
+	flag.StringVar(&config, "c", DefaultConfigPath, "coreos cloud config")
+	flag.StringVar(&out, "o", "", "write output to file")
+}
+
+func copyImage(dst *ImageWriter, src *ImageReader) error {
 	for {
-		h, err := src.Next()
+		h, err := src.c.Next()
 		if err != nil {
-			log.Println(err.Error())
-			break
+			return err
 		}
 		if h.IsTrailer() {
 			break
 		}
-
 		if h.Type == cpio.TYPE_DIR {
 			if h.Name == "." {
 				continue
 			}
-			err := dst.WriteHeader(h)
-			if err != nil {
+			if err := dst.c.WriteHeader(h); err != nil {
 				return err
 			}
 			continue
 		}
-		err = dst.WriteHeader(h)
-		if err != nil {
+		if err := dst.c.WriteHeader(h); err != nil {
 			return err
 		}
-		_, err = io.Copy(dst, src)
-		if err != nil {
-			log.Println(err.Error())
+		if _, err = io.Copy(dst.c, src.c); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func createOEM(dst *cpio.Writer, configPath string) error {
-	dirs := []string{"usr", "usr/share", "usr/share/oem"}
-	for _, d := range dirs {
+func copyConfig(iw *ImageWriter, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, d := range []string{"usr", "usr/share", "usr/share/oem"} {
 		h := cpio.Header{
 			Name:  d,
 			Mode:  0755,
 			Mtime: time.Now().Unix(),
 			Type:  cpio.TYPE_DIR,
 		}
-		err := dst.WriteHeader(&h)
-		if err != nil {
+		if err := iw.c.WriteHeader(&h); err != nil {
 			return err
 		}
 	}
-	f, err := os.Open(configPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
 	fi, err := f.Stat()
 	if err != nil {
 		return err
@@ -123,12 +148,51 @@ func createOEM(dst *cpio.Writer, configPath string) error {
 		Size:  fi.Size(),
 		Type:  cpio.TYPE_REG,
 	}
-	err = dst.WriteHeader(&h)
+	if err := iw.c.WriteHeader(&h); err != nil {
+		return err
+	}
+	if _, err = io.Copy(iw.c, f); err != nil {
+		return err
+	}
+	return nil
+}
+
+
+// Customize the CoreOS PXE image by creating the necessary OEM directories
+// and copying the cloud-config file in place.
+// See the "Adding a Custom OEM" section in the Booting CoreOS via PXE 
+// documentation - http://goo.gl/QrWvqN. 
+func customizeImage(in, out, config string) error {
+	image, err := os.Open(in)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(dst, f)
+	defer image.Close()
+	ir, err := NewImageReader(image)
 	if err != nil {
+		return err
+	}
+	temp, err := ioutil.TempFile("", "")
+	if err != nil {
+		return err
+	}
+	iw, err := NewImageWriter(temp)
+	if err != nil {
+		return err
+	}
+	if err := copyImage(iw, ir); err != nil {
+		return err
+	}
+	if err := copyConfig(iw, config); err != nil {
+		return err
+	}
+	if err := ir.Close(); err != nil {
+		return err
+	}
+	if err := iw.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temp.Name(), out); err != nil {
 		return err
 	}
 	return nil
@@ -140,51 +204,12 @@ func main() {
 	if flag.Arg(0) == "" {
 		log.Fatal("cpic: no pxe image provided")
 	}
-	pxeIn := flag.Arg(0)
-	pxeOut := path.Base(pxeIn)
+	in := flag.Arg(0)
+	out := path.Base(in)
 	if out != "" {
-		pxeOut = out
+		out = out
 	}
-
-	// Setup the cpio gzip reader.
-	in, err := os.Open(pxeIn)
-	handleError(err)
-	gzr, err := gzip.NewReader(in)
-	handleError(err)
-	src := cpio.NewReader(gzr)
-
-	// Setup the cpio gzip writer.
-	temp, err := ioutil.TempFile("", "")
-	handleError(err)
-	gzw := gzip.NewWriter(temp)
-	handleError(err)
-	dst := cpio.NewWriter(gzw)
-
-	// Copy the source PXE image.
-	err = copyArchive(dst, src)
-	handleError(err)
-
-	// Customize the PXE image by adding the CoreOS cloud config.
-	err = createOEM(dst, configPath)
-	handleError(err)
-
-	// Close the various cpio and gzip readers and writers.
-	// Order is important. The gzip writer is not guaranteed to
-	// flush its buffer and the cpio writer does not write the
-	// cpio trailer until closed.
-	err = gzr.Close()
-	handleError(err)
-	err = in.Close()
-	handleError(err)
-	err = dst.Close()
-	handleError(err)
-	err = gzw.Close()
-	handleError(err)
-	err = temp.Close()
-	handleError(err)
-
-	// Move the temp file representing the customized PXE image to
-	// the final output location.
-	err = os.Rename(temp.Name(), pxeOut)
-	handleError(err)
+	if err := customizeImage(in, out, config); err != nil {
+		log.Fatal(err)
+	}
 }
