@@ -1,4 +1,4 @@
-# CPIC
+# cpic
 
 The cpic commandline utility automates the CoreOS PXE image [customization process](https://coreos.com/docs/running-coreos/bare-metal/booting-with-pxe/#adding-a-custom-oem).
 
