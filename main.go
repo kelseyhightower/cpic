@@ -14,8 +14,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/surma/gocpio"
 	"github.com/kelseyhightower/cpic/image"
+	"github.com/surma/gocpio"
 )
 
 var (
@@ -91,8 +91,8 @@ func copyConfig(iw *image.Writer, path string) error {
 
 // Customize the CoreOS PXE image by creating the necessary OEM directories
 // and copying the cloud-config file in place.
-// See the "Adding a Custom OEM" section in the Booting CoreOS via PXE 
-// documentation - http://goo.gl/QrWvqN. 
+// See the "Adding a Custom OEM" section in the Booting CoreOS via PXE
+// documentation - http://goo.gl/QrWvqN.
 func customizeImage(in, out, config string) error {
 	i, err := os.Open(in)
 	if err != nil {
