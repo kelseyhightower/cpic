@@ -130,7 +130,6 @@ func customizeImage(in, out, config string) error {
 }
 
 func main() {
-	// Parse the commandline flags.
 	flag.Parse()
 	if flag.Arg(0) == "" {
 		log.Fatal("cpic: no pxe image provided")
